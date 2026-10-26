@@ -101,6 +101,7 @@ public class DLNAAvTransportImpl extends AbstractAVTransportService {
         this.pendingSeekMs = -1;
         this.currentURI = currentURI != null ? currentURI : "";
         this.currentMetaData = currentURIMetaData != null ? currentURIMetaData : "";
+        fireStateChange(this.currentURI.isEmpty() ? RenderState.IDLE : RenderState.PREPARING);
         startCastActivity(new CastAction(this.currentURI, this.currentMetaData, parseHeaders(this.currentMetaData)));
     }
 

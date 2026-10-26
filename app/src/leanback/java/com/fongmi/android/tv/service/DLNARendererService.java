@@ -33,11 +33,13 @@ import org.jupnp.model.meta.LocalDevice;
 import org.jupnp.model.meta.LocalService;
 import org.jupnp.model.meta.ManufacturerDetails;
 import org.jupnp.model.meta.ModelDetails;
+import org.jupnp.model.types.DLNADoc;
 import org.jupnp.model.types.UDADeviceType;
 import org.jupnp.model.types.UDN;
 import org.jupnp.support.avtransport.lastchange.AVTransportLastChangeParser;
 import org.jupnp.support.connectionmanager.ConnectionManagerService;
 import org.jupnp.support.lastchange.LastChangeAwareServiceManager;
+import org.jupnp.support.model.ProtocolInfos;
 import org.jupnp.support.renderingcontrol.lastchange.RenderingControlLastChangeParser;
 
 import java.nio.charset.StandardCharsets;
@@ -84,7 +86,7 @@ public class DLNARendererService extends AndroidUpnpServiceImpl implements Servi
         LocalService<DLNARenderingControlImpl> renderControl = createRenderingControl();
         DeviceIdentity identity = new DeviceIdentity(new UDN(UUID.nameUUIDFromBytes((Build.MANUFACTURER + Build.MODEL + "-MediaRenderer").getBytes(StandardCharsets.UTF_8))));
         UDADeviceType type = new UDADeviceType("MediaRenderer", 1);
-        DeviceDetails details = new DeviceDetails(Util.getDeviceName(), new ManufacturerDetails(Build.MANUFACTURER), new ModelDetails(Build.MODEL, "DLNA Renderer", "1.0"));
+        DeviceDetails details = new DeviceDetails(Util.getDeviceName(), new ManufacturerDetails(Build.MANUFACTURER), new ModelDetails(Build.MODEL, "DLNA Renderer", "1.0"), new DLNADoc[]{new DLNADoc("DMR", DLNADoc.Version.V1_5)}, null);
         try {
             LocalDevice device = new LocalDevice(identity, type, details, new LocalService[]{avTransport, connManager, renderControl});
             upnpService.getRegistry().addDevice(device);
@@ -105,10 +107,37 @@ public class DLNARendererService extends AndroidUpnpServiceImpl implements Servi
         return service;
     }
 
+    private static final String SINK_PROTOCOL_INFO = String.join(",",
+            "http-get:*:video/mp4:*",
+            "http-get:*:video/mpeg:*",
+            "http-get:*:video/x-matroska:*",
+            "http-get:*:video/webm:*",
+            "http-get:*:video/3gpp:*",
+            "http-get:*:video/x-msvideo:*",
+            "http-get:*:video/*:*",
+            "http-get:*:audio/mpeg:*",
+            "http-get:*:audio/mp4:*",
+            "http-get:*:audio/aac:*",
+            "http-get:*:audio/flac:*",
+            "http-get:*:audio/ogg:*",
+            "http-get:*:audio/*:*",
+            "http-get:*:image/jpeg:*",
+            "http-get:*:image/png:*",
+            "http-get:*:image/*:*",
+            "http-get:*:application/vnd.apple.mpegurl:*",
+            "http-get:*:application/x-mpegURL:*",
+            "http-get:*:application/dash+xml:*",
+            "http-get:*:*:*");
+
     @SuppressWarnings("unchecked")
     private LocalService<ConnectionManagerService> createConnectionManager() {
         LocalService<ConnectionManagerService> service = new AnnotationLocalServiceBinder().read(ConnectionManagerService.class);
-        service.setManager(new DefaultServiceManager<>(service, ConnectionManagerService.class));
+        service.setManager(new DefaultServiceManager<>(service, ConnectionManagerService.class) {
+            @Override
+            protected ConnectionManagerService createServiceInstance() {
+                return new ConnectionManagerService(new ProtocolInfos(), new ProtocolInfos(SINK_PROTOCOL_INFO));
+            }
+        });
         return service;
     }
 

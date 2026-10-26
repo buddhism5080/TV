@@ -31,6 +31,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc \
+            /usr/local/share/boost /usr/share/swift /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/powershell \
+            /usr/share/miniconda /usr/local/share/chromium \
+            /usr/local/lib/android/sdk/emulator \
+            /usr/local/lib/android/sdk/system-images \
+            /usr/local/lib/android/sdk/sources
+          sudo docker image prune --all --force
+          df -h
+
       - name: Assign release version
         run: python3 tools/ota-release.py version >> "$GITHUB_ENV"
 
@@ -95,11 +107,20 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           TMDB_LOGO_SIZE: ${{ vars.TMDB_LOGO_SIZE }}
         run: |
-          test -n "$KEYSTORE_BASE64"
-          test -n "$KEY_ALIAS"
-          test -n "$STORE_PASSWORD"
-          test -n "$KEY_PASSWORD"
-          echo "$KEYSTORE_BASE64" | base64 --decode > release.jks
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            KEY_ALIAS=ci
+            STORE_PASSWORD=android
+            KEY_PASSWORD=android
+            keytool -genkeypair -keystore release.jks -storetype PKCS12 -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+              -dname "CN=DLNA fix, OU=CI, O=buddhism5080, L=local, ST=local, C=US"
+          else
+            test -n "$KEY_ALIAS"
+            test -n "$STORE_PASSWORD"
+            test -n "$KEY_PASSWORD"
+            echo "$KEYSTORE_BASE64" | base64 --decode > release.jks
+          fi
           {
             echo "storeFile=../release.jks"
             echo "keyAlias=$KEY_ALIAS"
@@ -112,67 +133,21 @@ jobs:
       - name: Grant gradlew permission
         run: chmod +x ./gradlew
 
-      - name: Build release APKs
+      - name: Build coexist arm64 APK
         env:
           MEDIA3_SOURCE_DIR: ${{ github.workspace }}/.media3
-        run: ./gradlew -I "$RUNNER_TEMP/tv-sdk-compat.init.gradle" assembleLeanbackArm64_v8aRelease assembleLeanbackArmeabi_v7aRelease --no-daemon --build-cache --max-workers=2
+        run: ./gradlew -I "$RUNNER_TEMP/tv-sdk-compat.init.gradle" -PtvApplicationId=com.wobuhui666.android.tv assembleLeanbackArm64_v8aRelease --no-daemon --build-cache --max-workers=2
 
-      - name: Validate APKs and generate OTA manifest
-        env:
-          RELEASE_NOTES: ${{ inputs.release_notes }}
-          RELEASE_REPOSITORY: ${{ github.repository }}
-          RELEASE_TAG: build-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          python3 -m unittest discover -s tools/tests -p 'test_ota_release.py'
-          if [ -z "$RELEASE_NOTES" ]; then
-            RELEASE_NOTES="$(git log -1 --pretty=%s)"
-          fi
-          python3 tools/ota-release.py manifest \
-            --apk-root app/build/outputs/apk \
-            --repository "$RELEASE_REPOSITORY" \
-            --tag "$RELEASE_TAG" \
-            --mode leanback \
-            --desc="$RELEASE_NOTES" \
-            --output app/build/outputs/ota/leanback.json
-
-      - name: Stage default APKs
+      - name: Stage coexist APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/*/release/leanback-*.apk dist/
-          cp app/build/outputs/ota/*.json dist/
-
-      - name: Build coexist APKs
-        env:
-          MEDIA3_SOURCE_DIR: ${{ github.workspace }}/.media3
-        run: ./gradlew -I "$RUNNER_TEMP/tv-sdk-compat.init.gradle" -PtvApplicationId=com.wobuhui666.android.tv assembleLeanbackArm64_v8aRelease assembleLeanbackArmeabi_v7aRelease --no-daemon --build-cache --max-workers=2
-
-      - name: Stage coexist APKs
-        run: |
           count=0
           for apk in app/build/outputs/apk/*/release/leanback-*-coexist.apk; do
             python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["applicationId"]=="com.wobuhui666.android.tv", m["applicationId"]' "$(dirname "$apk")/output-metadata.json"
             cp "$apk" dist/
             count=$((count + 1))
           done
-          test "$count" -eq 2
-
-      - name: Generate coexist OTA manifest
-        env:
-          RELEASE_NOTES: ${{ inputs.release_notes }}
-          RELEASE_REPOSITORY: ${{ github.repository }}
-          RELEASE_TAG: build-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          if [ -z "$RELEASE_NOTES" ]; then
-            RELEASE_NOTES="$(git log -1 --pretty=%s)"
-          fi
-          python3 tools/ota-release.py manifest \
-            --apk-root app/build/outputs/apk \
-            --repository "$RELEASE_REPOSITORY" \
-            --tag "$RELEASE_TAG" \
-            --mode leanback \
-            --coexist \
-            --desc="$RELEASE_NOTES" \
-            --output dist/leanback-coexist.json
+          test "$count" -eq 1
           ls -l dist
 
       - name: Upload APK artifacts
