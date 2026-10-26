@@ -44,8 +44,16 @@ import org.jupnp.support.renderingcontrol.lastchange.RenderingControlLastChangeP
 
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class DLNARendererService extends AndroidUpnpServiceImpl implements ServiceConnection {
+
+    public static final String EXTRA_CAST_TOKEN = "dlna_cast_token";
+
+    private static final AtomicInteger CAST_TOKEN = new AtomicInteger();
+    private static final AtomicBoolean STOP_REQUESTED = new AtomicBoolean();
+    private static volatile DLNARendererService instance;
 
     private final IBinder binder = new LocalBinder();
 
@@ -63,7 +71,27 @@ public class DLNARendererService extends AndroidUpnpServiceImpl implements Servi
     }
 
     public static void stop(Context context) {
+        if (isCasting()) {
+            STOP_REQUESTED.set(true);
+            return;
+        }
+        STOP_REQUESTED.set(false);
         context.stopService(new Intent(context, DLNARendererService.class));
+    }
+
+    public static boolean isCasting() {
+        return CAST_TOKEN.get() != 0;
+    }
+
+    public static int markCasting() {
+        STOP_REQUESTED.set(false);
+        return CAST_TOKEN.incrementAndGet();
+    }
+
+    public static void clearCasting(int token) {
+        if (!CAST_TOKEN.compareAndSet(token, 0)) return;
+        DLNARendererService service = instance;
+        if (service != null && STOP_REQUESTED.compareAndSet(true, false) && !isCasting()) service.stopSelf();
     }
 
     @Override
@@ -74,6 +102,7 @@ public class DLNARendererService extends AndroidUpnpServiceImpl implements Servi
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         Notification notification = new NotificationCompat.Builder(this, Notify.DEFAULT).setSmallIcon(R.drawable.ic_notification).setContentTitle(getString(R.string.app_name)).setSilent(true).build();
         startForeground(Notify.ID + 1, notification);
         upnpService.startup();
@@ -161,6 +190,7 @@ public class DLNARendererService extends AndroidUpnpServiceImpl implements Servi
 
     @Override
     public void onDestroy() {
+        if (instance == this) instance = null;
         unbindPlaybackService();
         super.onDestroy();
     }
